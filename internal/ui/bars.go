@@ -166,15 +166,15 @@ func (m *Model) versionTag() string {
 }
 
 var agentSegs = []barSeg{
-	{"context", "Context", "context fullness; click the header readout for token counts and breakdown", func(x *barCtx) string { return headerContext(x.c) }},
+	{"context", "Context", "context fullness; click the header readout for token counts and breakdown", func(x *barCtx) string { return headerContext(x.c, x.a) }},
 	{"context-detail", "Context details", "tokens used, context capacity and fullness gauge", func(x *barCtx) string {
 		s := x.c.sess
 		if s.Context <= 0 {
 			return ""
 		}
-		win := s.ContextWindow()
-		p := float64(s.Context) / float64(win) * 100
-		return dim("ctx ") + ctxBar(p) + " " + paint(cSub, tokens(int64(s.Context))+"/"+tokens(int64(win))+fmt.Sprintf(" %.0f%%", p))
+		f := ctxFill(x.a, int64(s.Context), int64(s.ContextWindow()))
+		p := f.Pct()
+		return dim("ctx ") + ctxBar(p) + " " + paint(cSub, tokens(f.Used)+"/"+tokens(f.Window)+fmt.Sprintf(" %.0f%%", p))
 	}},
 	{"cost", "Cost", "what the agent has cost so far", func(x *barCtx) string {
 		if c := x.c.sess.Info.CostUSD; c > 0 {

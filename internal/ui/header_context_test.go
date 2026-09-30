@@ -2,6 +2,7 @@ package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"github.com/0xdeafcafe/rush/internal/agent"
 	"github.com/0xdeafcafe/rush/internal/statusline"
 	"github.com/charmbracelet/x/ansi"
 	"strings"
@@ -55,7 +56,21 @@ func TestQuietHeaderDefaultsKeepDetailsOptional(t *testing.T) {
 		t.Fatalf("sleep reported as failure: %s", rows)
 	}
 	c.sess.Context = 0
-	if headerContext(c) != "" {
+	if headerContext(c, a) != "" {
 		t.Fatal("missing measurement shown as zero usage")
+	}
+}
+
+// The header's readout is measured against the window the agent compacts
+// within, when that's smaller than the model's.
+func TestHeaderContextAgainstTheCompactWindow(t *testing.T) {
+	_, a, c := barAgentFixture(t)
+	c.sess.Window, c.sess.Context = 1_000_000, 520_000
+	if got := ansi.Strip(headerContext(c, a)); got != "context 52%" {
+		t.Fatalf("without a compact window: %q", got)
+	}
+	a.Compaction = agent.Compaction{Window: 400_000, Headroom: 33_000}
+	if got := ansi.Strip(headerContext(c, a)); got != "context 130%" {
+		t.Fatalf("with a 400k window: %q", got)
 	}
 }

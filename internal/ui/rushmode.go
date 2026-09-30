@@ -1950,6 +1950,9 @@ func (m *Model) rushPane(w, h int) []string {
 	}
 	o := convo.Options{Width: contentW, Now: paneNow(), Tick: m.tick, Open: c.open, View: c.looks, Verbose: c.verbose, History: c.historyMode, HideActivity: true,
 		Selected: c.sel, Focused: m.paneFocus, Wide: m.hostedAlone()}
+	if a := m.agentByKey(c.key); a != nil {
+		o.Compaction = a.Compaction
+	}
 	var body []convo.Line
 	// body is rows [base, base+len(body)) of total; in a conversation only
 	// the turns around what's on screen are drawn. transcript is the rows
@@ -2413,7 +2416,7 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	right := m.barLine(barAgent, 0, x, hw-cellw.String(left1)-4)
 	row1 := spread(left1, right+" ", hw)
 	c.contextLabel = [2]int{}
-	if value := headerContext(c); value != "" {
+	if value := headerContext(c, a); value != "" {
 		plain, metric := ansi.Strip(row1), ansi.Strip(value)
 		if i := strings.LastIndex(plain, metric); i >= 0 && strings.Contains(ansi.Strip(right), metric) {
 			c.contextLabel = [2]int{cellw.String(plain[:i]), cellw.String(metric)}

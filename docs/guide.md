@@ -205,6 +205,7 @@ Running shells, monitors, workflows and subagents sit in the dock under the conv
 - `/rewind` to before one of your messages, keeping the code or putting the files back, with a note of what the dropped turns learned.
 - `/btw` asks a side question in a panel while the agent keeps working. Its text drags to copy, as the conversation's does.
 - `/context`, `/status`, `/usage` and `/stats` open as one sheet: what fills the context, the limits, and your history by day, hour and model.
+- Context is shown against the window the session compacts in. When Claude Code's `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (in the environment or a settings file's `env`) or `autoCompactWindow` setting makes it smaller than the model's, it reads `130% · 520k of 400k · auto-compacts at 367k · model 1M`.
 - `/plugins`, `/skills`, `/permissions`, `/hooks` and `/statusline`, and `/model` and `/effort` pickers.
 
 When a turn ends and nothing is left running, Claude Code is stopped a few seconds later instead of sitting on 150–200 MB for five minutes doing nothing. The next message starts it again in about a second, with the prompt cache intact.

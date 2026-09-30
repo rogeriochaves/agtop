@@ -66,6 +66,9 @@ type Options struct {
 	// (at the width before a resize, say) is used as it was, and Stale
 	// says so: the caller draws again soon, and each render redraws more.
 	Budget time.Duration
+	// Compaction is where the session's agent compacts its context, when
+	// it's short of the model's window.
+	Compaction agent.Compaction
 }
 
 // rowCap is how wide a row's numbers and rules may run.
