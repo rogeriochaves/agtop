@@ -146,8 +146,7 @@ var agentSegs = []barSeg{
 		if s.Context <= 0 {
 			return ""
 		}
-		win := s.ContextWindow()
-		p := float64(s.Context) / float64(win) * 100
+		p := ctxFill(x.a, int64(s.Context), int64(s.ContextWindow())).Pct()
 		return dim("ctx ") + ctxBar(p) + " " + paint(cSub, fmt.Sprintf("%.0f%%", p))
 	}},
 	{"cost", "Cost", "what the agent has cost so far", func(x *barCtx) string {

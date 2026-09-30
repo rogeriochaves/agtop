@@ -1822,6 +1822,9 @@ func (m *Model) rushPane(w, h int) []string {
 	c.sess.Hex = m.bundledOn["hex"]
 	o := convo.Options{Width: w, Now: paneNow(), Tick: m.tick, Open: c.open, View: c.looks, Verbose: c.verbose,
 		Selected: c.sel, Focused: m.paneFocus, Wide: m.hostedAlone()}
+	if a := m.agentByKey(c.key); a != nil {
+		o.Compaction = a.Compaction
+	}
 	var body []convo.Line
 	view := m.viewName(c)
 	if m.zen {

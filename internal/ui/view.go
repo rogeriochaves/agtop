@@ -1461,9 +1461,12 @@ func (m *Model) cardLines(a *fleet.Agent, w int) []string {
 
 	var cells []string
 	if p.Context > 0 {
-		win := agent.ContextWindow(agent.Kind(a.Kind), p.Model)
-		pct := float64(p.Context) / float64(win) * 100
-		cells = append(cells, dim("context ")+ctxBar(pct)+" "+paint(cText, fmt.Sprintf("%.0f%%", pct))+dim(" of "+tokens(win)))
+		f := ctxFill(a, int64(p.Context), agent.ContextWindow(agent.Kind(a.Kind), p.Model))
+		of := " of " + tokens(f.Window)
+		if f.Compacts() {
+			of += " auto-compact"
+		}
+		cells = append(cells, dim("context ")+ctxBar(f.Pct())+" "+paint(cText, fmt.Sprintf("%.0f%%", f.Pct()))+dim(of))
 	}
 	u := a.Spend.Usage
 	if a.Spend.Cost > 0 {
@@ -1762,9 +1765,9 @@ func (m *Model) agentLine(a *fleet.Agent, w, listW int, sel bool, nameCol int, s
 			return strings.Repeat(" ", wTok)
 		}
 		v := right1(tokens(a.Spend.Context), wTok)
-		win := agent.ContextWindow(agent.Kind(a.Kind), a.Spend.Model)
+		f := ctxFill(a, a.Spend.Context, agent.ContextWindow(agent.Kind(a.Kind), a.Spend.Model))
 		switch {
-		case win > 0 && float64(a.Spend.Context)/float64(win) >= 0.8:
+		case f.Window > 0 && f.Pct() >= 80:
 			return paint(cYellow, v)
 		case active:
 			return dim(v)
@@ -2354,9 +2357,8 @@ func (m *Model) previewLines(w, h int) []string {
 	u := a.Spend.Usage
 	tail = append(tail, "", section("Numbers"))
 	if p.Context > 0 {
-		win := agent.ContextWindow(agent.Kind(a.Kind), p.Model)
-		pct := float64(p.Context) / float64(win) * 100
-		tail = append(tail, dim(fit("context", 10))+ctxBar(pct)+" "+paint(cText, fmt.Sprintf("%.0f%%", pct))+dim(fmt.Sprintf("  %s of %s tokens", tokens(p.Context), tokens(win))))
+		f := ctxFill(a, int64(p.Context), agent.ContextWindow(agent.Kind(a.Kind), p.Model))
+		tail = append(tail, dim(fit("context", 10))+ctxBar(f.Pct())+" "+paint(cText, fmt.Sprintf("%.0f%%", f.Pct()))+dim("  "+f.Of(tokens)))
 	}
 	tail = append(tail, dim(fit("spent", 10))+paint(cText+bold, money(a.Spend.Cost))+dim(fmt.Sprintf("  in %s · cache read %s · written %s · out %s", tokens(u.Input), tokens(u.CacheRead), tokens(u.CacheWrite5m+u.CacheWrite1h), tokens(u.Output))))
 	tail = append(tail, dim(fit("time", 10))+paint(cText, dur(a.Elapsed(now)))+dim(" since "+a.CreatedAt.Local().Format("Mon 15:04")))
@@ -2525,4 +2527,19 @@ func (m *Model) helpBody() []string {
 		out = append(out, "", "")
 	}
 	return append(out, faint("[ ] next · any key closes"))
+}
+
+// ctxFill is used tokens of a's context against win, its model's window,
+// or the smaller one its agent compacts within.
+func ctxFill(a *fleet.Agent, used, win int64) agent.Fill {
+	var c agent.Compaction
+	if a != nil {
+		c = a.Compaction
+	}
+	return agent.FillOf(used, win, c)
+}
+
+// ctxLine is a context row's value: its bar, percentage and what fills it.
+func ctxLine(f agent.Fill) string {
+	return ctxBar(f.Pct()) + " " + paint(cSub, fmt.Sprintf("%.0f%%", f.Pct())) + dim(" · "+f.Of(tokens))
 }
