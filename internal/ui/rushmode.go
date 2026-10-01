@@ -1688,7 +1688,7 @@ func (m *Model) onHostOpen(msg hostOpenMsg) tea.Cmd {
 	m.host = msg.c
 	if d, ok := m.rewound[msg.key]; ok && m.host.client != nil {
 		delete(m.rewound, msg.key)
-		m.host.input, m.host.back = []rune(d), 0
+		m.host.input, m.host.back = m.host.pastes.unfold(d), 0
 		m.paneFocus = true
 	}
 	if c := m.host; c.client == nil {
@@ -3289,8 +3289,15 @@ func (m *Model) sendPane(c *hostConn, now bool) tea.Cmd {
 		return nil
 	}
 	// Claude Code sessions are typed into, where tags would show as typed.
-	text = strings.TrimSpace(c.pastes.expand(text, c.client != nil || m.agentByKey(c.key) == nil || m.agentByKey(c.key).Rush))
-	c.pastes = pastes{}
+	text = c.pastes.out(c.input, c.client != nil || m.agentByKey(c.key) == nil || m.agentByKey(c.key).Rush)
+	// The pastes stay as long as their chips are in the box: a send that
+	// asks first (a cold cache, an unknown command) comes back here with
+	// the same box.
+	defer func() {
+		if len(c.input) == 0 {
+			c.pastes = pastes{}
+		}
+	}()
 	if c.editQ > 0 {
 		i, was := c.editQ-1, c.editWas
 		c.input, c.back = c.input[:0], 0
@@ -4035,8 +4042,8 @@ func (m *Model) questionKey(c *hostConn, req *event.Question, s string, empty bo
 	}
 	if s == "enter" {
 		if !empty {
-			text := strings.TrimSpace(string(c.input))
-			c.input, c.back = c.input[:0], 0
+			text := c.pastes.out(c.input, false)
+			c.input, c.back, c.pastes = c.input[:0], 0, pastes{}
 			return m.answerQuestion(c, req, qs, text), true
 		}
 		if q.MultiSelect && anyPicked(picked) {

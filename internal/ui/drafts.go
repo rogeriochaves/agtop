@@ -98,7 +98,7 @@ func (m *Model) undoKey(c *hostConn, s string) bool {
 // boxDraft is what's in the Session's box as a Draft of a kind. Pastes are
 // kept whole, to come back as chips.
 func (m *Model) boxDraft(c *hostConn, kind string) (state.Draft, bool) {
-	text := strings.TrimSpace(c.pastes.expand(string(c.input), true))
+	text := c.pastes.out(c.input, true)
 	if text == "" {
 		return state.Draft{}, false
 	}
@@ -111,7 +111,7 @@ func (m *Model) boxDraft(c *hostConn, kind string) (state.Draft, bool) {
 
 // promptDraft is boxDraft for the Prompt under Agents.
 func (m *Model) promptDraft(kind string) (state.Draft, bool) {
-	text := strings.TrimSpace(m.pastes.expand(string(m.input), true))
+	text := m.pastes.out(m.input, true)
 	if text == "" {
 		return state.Draft{}, false
 	}
