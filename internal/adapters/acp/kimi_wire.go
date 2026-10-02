@@ -3,6 +3,7 @@ package acp
 import (
 	"bufio"
 	"encoding/json/jsontext"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -102,7 +103,7 @@ func readAgentWire(r io.Reader, own string, before time.Time) ([]event.Event, er
 	var out []event.Event
 	var tokens usage.TokenUsage
 	model := ""
-	line := 0
+	line, read, bad := 0, 0, 0
 	for scan.Scan() {
 		line++
 		var rec struct {
@@ -130,8 +131,10 @@ func readAgentWire(r io.Reader, own string, before time.Time) ([]event.Event, er
 			}
 		}
 		if err := jsonx.Unmarshal(scan.Bytes(), &rec); err != nil {
+			bad++
 			continue // a live session's last line is often half-written
 		}
+		read++
 		if rec.AgentID != "" && rec.AgentID != own {
 			continue
 		}
@@ -208,6 +211,9 @@ func readAgentWire(r io.Reader, own string, before time.Time) ([]event.Event, er
 		case "context.apply_compaction":
 			out = append(out, event.Compacted{Before: rec.TokensBefore, After: rec.TokensAfter})
 		}
+	}
+	if read == 0 && bad > 0 {
+		return nil, fmt.Errorf("kimi wire: no line of %d is a record", bad)
 	}
 	return EndHistoryTurns(out), scan.Err()
 }
