@@ -43,7 +43,11 @@ func (r *runner) exec(ctx context.Context, p plugin.Plugin, name string, args []
 		}
 	}
 	dir := plugin.DataDir(p.Name)
-	if cwd != "" {
+	if cwd == "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, err
+		}
+	} else {
 		d, err := filepath.EvalSymlinks(cwd)
 		if err != nil || !filepath.IsAbs(cwd) {
 			return nil, bad("cwd does not exist")
