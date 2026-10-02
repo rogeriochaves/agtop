@@ -72,7 +72,7 @@ func (d *drawer) userBox(ref, title, ask string, imgs []string, pics []*event.Im
 	if parts := queuedMessages(ask); len(parts) > 0 && !multi {
 		for i, part := range parts {
 			if i > 0 {
-				d.gap()
+				d.add(ref, bgUser, d.spine(), "") // one filled row between queued messages
 			}
 			d.userBox(ref, "", part, nil, nil, false)
 		}

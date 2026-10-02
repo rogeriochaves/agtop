@@ -233,8 +233,8 @@ type Model struct {
 	divHover     bool                   // the mouse is on the edge between Agents and the Session
 	ptrX, ptrY   int                    // where the mouse was last seen
 	ptrSeen      bool
-	pointer      string // the pointer's shape last asked of the terminal
-	sheetAt      [2]int // where the open sheet's body was drawn: x, y
+	pointer      string     // the pointer's shape last asked of the terminal
+	sheetAt      [2]int     // where the open sheet's body was drawn: x, y
 	over         overlayHit // the box over the screen, as last drawn, for the mouse
 	hibernated   map[string]bool
 	offline      bool // never ask Anthropic for usage (--soak)

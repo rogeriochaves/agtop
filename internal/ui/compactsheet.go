@@ -249,7 +249,7 @@ func (m *Model) compactBy(c *hostConn, id string, o summarizer) tea.Cmd {
 func (m *Model) compactTyped(c *hostConn, a *fleet.Agent, arg string) (tea.Cmd, bool) {
 	kind := agent.Migrated(firstNonEmpty(c.sess.Info.Kind, a.Kind))
 	o := summarizer{kind: agent.Kind(m.store.Config.CompactKind), label: agentName(m.store.Config.CompactKind), model: m.store.Config.CompactModel}
-	if o.model == "" && kind == "claude" {
+	if o.model == "" && kind == "claude" { // migration: the fast-model default moves behind the Claude adapter
 		o = summarizer{kind: kind, label: agentName(string(kind)), model: "haiku"}
 	}
 	st := c.sess.Info.State

@@ -169,7 +169,7 @@ func (m *Model) roomLine(a *fleet.Agent, w int, sel bool) string {
 	}
 	marker, status := roomStatus(s)
 	if marker == "" {
-		marker = paint(cOrange, convo.Spin("claude", m.tick+len(s.ID)))
+		marker = paint(cOrange, convo.Spin("claude", m.tick+len(s.ID))) // migration: the spinner style moves behind the adapters
 	}
 	right := "  " + dim(status)
 	name := paint(cText, "◈ "+s.Topic)
