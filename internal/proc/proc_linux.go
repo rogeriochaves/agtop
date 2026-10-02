@@ -140,3 +140,21 @@ func env(pid int) []string {
 func CommandLine(pid int) string { return strings.Join(Args(pid), " ") }
 
 func Kill(pid int, sig syscall.Signal) error { return syscall.Kill(pid, sig) }
+
+// Running is whether pid is a process that has not exited: a zombie, gone
+// but not yet waited for, is not.
+func Running(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return false
+	}
+	end := bytes.LastIndexByte(b, ')')
+	if end < 0 || end+2 >= len(b) {
+		return true
+	}
+	st := b[end+2]
+	return st != 'Z' && st != 'X'
+}

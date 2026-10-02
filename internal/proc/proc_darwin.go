@@ -169,3 +169,17 @@ func argsEnv(pid int) (args, env []string) {
 func CommandLine(pid int) string { return strings.Join(Args(pid), " ") }
 
 func Kill(pid int, sig syscall.Signal) error { return syscall.Kill(pid, sig) }
+
+// Running is whether pid is a process that has not exited: a zombie, gone
+// but not yet waited for, is not.
+func Running(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil || k.Proc.P_pid != int32(pid) {
+		return false
+	}
+	const zombie = 5 // SZOMB in <sys/proc.h>
+	return k.Proc.P_stat != zombie
+}
