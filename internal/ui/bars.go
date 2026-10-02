@@ -36,6 +36,8 @@ type barCtx struct {
 	t tally
 	a *fleet.Agent
 	c *hostConn
+	// room is what's left of the line's width where a segment starts.
+	room int
 }
 
 const (
@@ -44,11 +46,18 @@ const (
 )
 
 var topSegs = []barSeg{
+	{"plan", "Plan summary", "the default provider’s usage, with fixed window order; add Plan usage for all accounts, meters and reset times", func(x *barCtx) string { return x.m.quietPlan() }},
+	{"memory", "Agent memory", "memory held by agents and their processes, with a fixed-width reading", func(x *barCtx) string {
+		return dim(fmt.Sprintf("%4.1fG RAM", float64(x.m.snap.Machine.TotalMem)/(1<<30)))
+	}},
+	{"system", "System alerts", "network trouble, low disk or low battery; quiet while healthy", func(x *barCtx) string { return quietSystem() }},
+	{"statushelp", "Status customization", "opens the status-line editor: full CPU, tokens, storage, battery and detailed usage remain available", func(x *barCtx) string { return faint("#statusline details") }},
+
 	{"today", "Spend today", "what every account has spent today", func(x *barCtx) string {
 		return paint(cText, money(x.t.today)) + dim(" today")
 	}},
-	{"usage", "Plan usage", "the account in use: its 5-hour and weekly limits, and when they reset", func(x *barCtx) string {
-		return x.m.activeUsage()
+	{"usage", "Plan usage", "the account in use: its 5-hour and weekly limits, and when they reset; then every other provider's, the least room first", func(x *barCtx) string {
+		return x.m.activeUsage(x.room)
 	}},
 	{"accounts", "Every account", "each account's shortest limit, of every agent, when there are several", func(x *barCtx) string {
 		var parts []string
@@ -138,16 +147,34 @@ var topSegs = []barSeg{
 	{"clock", "Clock", "the time of day", func(x *barCtx) string {
 		return dim(x.m.snap.At.Local().Format("15:04"))
 	}},
+	{"version", "rush version", "the rush this window runs: yellow once a newer one is installed (#reload), orange while a newer one is out (#update)", func(x *barCtx) string {
+		return x.m.versionTag()
+	}},
+}
+
+// versionTag is this window's rush, so two windows can be told apart, and
+// what to do when it's behind.
+func (m *Model) versionTag() string {
+	v := "rush " + m.version
+	switch {
+	case m.rebuilt:
+		return paint(cYellow, v+" · older than installed · #reload")
+	case m.newer.Version != "" && !m.updating:
+		return paint(cOrange, v+" · "+m.newer.Short()+" is out · #update")
+	}
+	return faint(v)
 }
 
 var agentSegs = []barSeg{
-	{"context", "Context", "how full the context window is", func(x *barCtx) string {
+	{"context", "Context", "context fullness; click the header readout for token counts and breakdown", func(x *barCtx) string { return headerContext(x.c) }},
+	{"context-detail", "Context details", "tokens used, context capacity and fullness gauge", func(x *barCtx) string {
 		s := x.c.sess
 		if s.Context <= 0 {
 			return ""
 		}
-		p := ctxFill(x.a, int64(s.Context), int64(s.ContextWindow())).Pct()
-		return dim("ctx ") + ctxBar(p) + " " + paint(cSub, fmt.Sprintf("%.0f%%", p))
+		f := ctxFill(x.a, int64(s.Context), int64(s.ContextWindow()))
+		p := f.Pct()
+		return dim("ctx ") + ctxBar(p) + " " + paint(cSub, tokens(f.Used)+"/"+tokens(f.Window)+fmt.Sprintf(" %.0f%%", p))
 	}},
 	{"cost", "Cost", "what the agent has cost so far", func(x *barCtx) string {
 		if c := x.c.sess.Info.CostUSD; c > 0 {
@@ -165,17 +192,21 @@ var agentSegs = []barSeg{
 		return ""
 	}},
 	{"folder", "Folder", "the folder it works in", func(x *barCtx) string {
-		return dim(tildify(x.a.Cwd))
+		return dim(locationFolder(x))
 	}},
 	{"branch", "Git branch", "the branch checked out there", func(x *barCtx) string {
-		if x.a.Branch == "" {
-			return ""
-		}
-		return paint(cSub, x.a.Branch)
+		_, repo, root, branch := sessionLocation(x.a, x.c)
+		return paint(cSub, ansi.Truncate(locationBranch(repo, root, branch), max(0, x.room), "…"))
 	}},
 	{"model", "Model", "the model it runs", func(x *barCtx) string {
 		if md := firstNonEmpty(x.c.sess.Model, x.c.sess.Info.Model); md != "" {
 			return dim(convo.PrettyModel(md))
+		}
+		return ""
+	}},
+	{"rush", "Older rush", "shown when its host runs an older rush than the one installed", func(x *barCtx) string {
+		if x.c.client != nil && x.c.sess.Info.Stale(x.m.upd.installed) {
+			return paint(cYellow, "older rush")
 		}
 		return ""
 	}},
@@ -351,6 +382,7 @@ func (m *Model) barLine(which, i int, x *barCtx, w int) string {
 	var parts, ids []string
 	for _, id := range l.Lines[i] {
 		if s, ok := findBarSeg(which, id); ok {
+			x.room = w - ansi.StringWidth(strings.Join(append(parts, ""), dim(sep)))
 			if p := s.draw(x); p != "" {
 				parts, ids = append(parts, p), append(ids, id)
 			}

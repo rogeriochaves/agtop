@@ -21,8 +21,11 @@ const Kind agent.Kind = "vibe"
 
 func init() {
 	agent.Register(Adapter{acp.Agent{
-		ID: Kind, Title: "Mistral Vibe", Command: "vibe", ACP: "vibe-acp", Home: ".vibe",
-		More: map[agent.Feature]agent.Support{agent.FeatureQuota: agent.Planned},
+		ID: Kind, Title: "Vibe", Company: "Mistral", Command: "vibe", ACP: "vibe-acp", Home: ".vibe",
+		Pub: agent.Published{PyPI: "mistral-vibe"},
+		// Vibe says which plan it's on (its whoami), never how much is left;
+		// a limit shows only as the error it stops a turn with.
+		More: map[agent.Feature]agent.Support{agent.FeatureQuota: agent.No.With("Vibe says its plan, not what's left of it")},
 		// vibe takes its model only from its config, which VIBE_* sets.
 		Once: `vibe -p "<task>"`, Model: "VIBE_ACTIVE_MODEL=",
 		Flags: map[string]string{"-p": "prompt", "--prompt": "prompt", "--workdir": "cwd", "--agent": "mode",
@@ -63,6 +66,10 @@ func (a Adapter) Profiles() []agent.Profile {
 func (a Adapter) Start(ctx context.Context, o agent.StartOptions) (agent.Conn, error) {
 	if o.Profile.Dir != "" && o.Profile.Dir != home() {
 		o.Env = append(append([]string(nil), o.Env...), "VIBE_HOME="+o.Profile.Dir)
+	}
+	if o.Model != "" {
+		o.Env = append(append([]string(nil), o.Env...), "VIBE_ACTIVE_MODEL="+o.Model)
+		o.Model = "" // Vibe reads the startup model from configuration, before opening ACP.
 	}
 	return a.Agent.Start(ctx, o)
 }

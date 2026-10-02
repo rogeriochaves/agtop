@@ -11,6 +11,4 @@ func args(int) []string                      { return nil }
 func env(int) []string                       { return nil }
 func CommandLine(int) string                 { return "" }
 func Kill(pid int, sig syscall.Signal) error { return syscall.Kill(pid, sig) }
-
-// Running is whether pid is a process that is still there.
-func Running(pid int) bool { return pid > 0 && syscall.Kill(pid, 0) == nil }
+func Zombie(int) bool                        { return false }

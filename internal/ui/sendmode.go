@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"time"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
@@ -42,8 +43,8 @@ func (m *Model) sendModeOf(c *hostConn) sendMode {
 	return sendQueue
 }
 
-// cycleSendMode is ctrl+t: the next way enter sends to c.
-func (m *Model) cycleSendMode(c *hostConn) {
+// nextSendMode is the way enter sends to c after the current one.
+func (m *Model) nextSendMode(c *hostConn) sendMode {
 	ms := c.sendModes()
 	cur := m.sendModeOf(c)
 	next := ms[0]
@@ -52,6 +53,12 @@ func (m *Model) cycleSendMode(c *hostConn) {
 			next = ms[(i+1)%len(ms)]
 		}
 	}
+	return next
+}
+
+// cycleSendMode is ctrl+t: the next way enter sends to c.
+func (m *Model) cycleSendMode(c *hostConn) {
+	next := m.nextSendMode(c)
 	if m.sendModes == nil {
 		m.sendModes = map[string]sendMode{}
 	}
@@ -65,16 +72,19 @@ var (
 	sendModeNames = map[sendMode]string{sendQueue: "queue", sendGuide: "guide", sendStop: "stop & send"}
 )
 
-// sendModeTop is the box's border while the session works: what enter does,
-// and the key that changes it.
+// sendModeStates and sendModeSwitches say how enter sends now, and name the
+// mode a switch goes to: guide is what the box calls coalescing.
+var (
+	sendModeStates   = map[sendMode]string{sendQueue: "queuing", sendGuide: "coalescing", sendStop: "stop & send"}
+	sendModeSwitches = map[sendMode]string{sendQueue: "queue", sendGuide: "coalesce", sendStop: "stop & send"}
+)
+
+// sendModeTop is the box's border while the session works: how enter sends,
+// and the key that goes to the next way. Dim, and short.
 func (m *Model) sendModeTop(c *hostConn) string {
-	md := m.sendModeOf(c)
-	top := dim(" · working, so ") + paint(cOrange, "enter "+sendModeWords[md])
-	if len(c.sendModes()) > 1 {
-		top += dim(" · ") + paint(cSub, "ctrl+t") + dim(" "+sendModeNames[md])
-	}
-	if md != sendStop && len(c.input) > 0 {
-		top += dim(" · " + m.sendNowKey() + " stops it and sends")
+	top := dim(" · ") + paint(cDim, sendModeStates[m.sendModeOf(c)])
+	if next := m.nextSendMode(c); next != m.sendModeOf(c) {
+		top += dim(" · " + m.boundKey("session.sendmode") + " " + sendModeSwitches[next])
 	}
 	return top
 }
@@ -103,15 +113,29 @@ func (m *Model) boxKeys(c *hostConn, a *fleet.Agent, s *convo.Session) []string 
 	if working {
 		pairs = append(pairs, m.boundKey("session.stop"), "stop it")
 	}
+	w, on := m.stash()
 	switch {
-	case typed:
-		pairs = append(pairs, keySaveDraft, "keep as draft")
+	case typed && on:
+		pairs = append(pairs, m.boundKey("session.stash"), w.Verb)
 	case time.Since(c.clearedAt) < 2*time.Minute:
 		pairs = append(pairs, undoHint, "bring back what you cleared")
-	case draftCount() > 0:
-		pairs = append(pairs, keyRecallDraft, "latest draft")
+	case m.hasStash(c.key):
+		pairs = append(pairs, m.boundKey("session.stash"), "your "+w.Noun+" back")
 	}
-	return append(pairs, m.boundKey("session.drafts"), "drafts · sent · cleared")
+	if !on {
+		return pairs
+	}
+	return append(pairs, m.boundKey("session.history"), strings.ToLower(w.Tab)+" · sent · cleared")
+}
+
+// historyHint is what an empty Session box says of the history, when the
+// stash is running.
+func (m *Model) historyHint() string {
+	w, on := m.stash()
+	if !on {
+		return ""
+	}
+	return " · " + m.boundKey("session.history") + ": " + strings.ToLower(w.Tab) + ", sent, cleared"
 }
 
 // sendModeKeys say what enter does in each mode, beside it in the hints.

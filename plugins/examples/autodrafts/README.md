@@ -1,13 +1,13 @@
 # autodrafts
 
-rush's drafts, rebuilt as a plugin. rush already keeps what you type and don't send; this plugin does the same through the [UI hooks](../../skills/write-rush-plugin/references/protocol.md#uievent-notification--needs-events-or-input), to show they're enough for it. rush's built-in drafts stay as they are. Install it to read how it works, not because you need it.
+rush's drafts, rebuilt as a plugin. rush already keeps what you type and don't send; this plugin does the same through the [UI hooks](../../skills/write-rush-plugin/references/protocol.md#uievent-notification--needs-events-or-input), to show they're enough for it. rush's own stash, its bundled `drafts` plugin, stays as it is. Install it to read how it works, not because you need it.
 
 What it does:
 
 - As you type in a message box (a Session's, or the Prompt's), it notes the text, and writes it down as that box's autosave once you stop typing for 1.5 seconds.
 - When you leave the Session, or clear the box with text in it, it keeps that text as a draft for that box.
 - When you send, it forgets the autosave: nothing is kept of what was sent.
-- `plugin:autodrafts.restore` (`alt+b`, if it's free) puts the box's newest draft back, and takes it out of the list, so running it again goes one further back. With no draft left, it puts back the autosave, what you were typing when rush quit.
+- `plugin:autodrafts.restore` (`ctrl+]` then `b`, if it's free) puts the box's newest draft back, and takes it out of the list, so running it again goes one further back. With no draft left, it puts back the autosave, what you were typing when rush quit.
 - `plugin:autodrafts.list` says how many drafts the box keeps.
 - Settings, Plugins, *Drafts kept per box*: 10, 50 (the default) or 200. The oldest go first.
 

@@ -9,15 +9,14 @@ import (
 	"github.com/0xdeafcafe/rush/internal/menubar"
 )
 
-// General is everything that holds whatever agent runs: how rush looks
-// after sessions, then how it looks (interfaceSections).
+// General controls session lifecycle, notifications and background work.
 func (m *Model) generalSections() []section {
 	c := &m.store.Config
 	d := &c.Dispatch
 	var secs []section
 
 	rest := choiceSetting("Rest idle sessions after", restValue(d.RestMinutes),
-		"How long an idle rush-mode session keeps its agent running. An idle agent holds 150-580 MB; after this it stops, and your next message starts it again in about a second. The host, the conversation and its queue stay, and so does the prompt cache.",
+		"How long an idle rush-mode session keeps its harness running. An idle harness holds 150-580 MB; after this it stops, and your next message starts it again in about a second. The host, the conversation and its queue stay, and so does the prompt cache.",
 		[][2]string{
 			{"", "the agent stops a moment after its turn, with nothing left running in the background."},
 			{"2 min", "the agent stays up 2 minutes after its turn."},
@@ -117,7 +116,19 @@ func (m *Model) generalSections() []section {
 		[][2]string{{"on", "it looks at most every 3 hours, once there's something new."}, {"off", "no advisor."}}, nil)
 	advisor.run = m.advCommand
 	secs = append(secs, section{title: "Advice", rows: []setting{advisor}})
-	return append(secs, m.interfaceSections()...)
+
+	// What keeps a turn from hanging on a stream that went silent: shown,
+	// as it's always on.
+	stalls := setting{
+		label: "Stalled turns",
+		what:  "A model's stream can go silent without ending, leaving a turn waiting for good. Claude Code sessions rush runs have Claude Code's own stream watchdog on, which cuts such a stream and tries again, and every turn that has heard nothing from its agent for 2 minutes, with no step running, is marked stalled on its working line.",
+		line: func(int) string {
+			return fit(paint(cText, "Stalled turns"), 32) + paint(cGreen, "✓ watched") +
+				faint(" · Claude Code's stream watchdog on · a turn quiet 2m is marked stalled")
+		},
+	}
+	secs = append(secs, section{title: "Stalls", rows: []setting{stalls}})
+	return secs
 }
 
 // onOffWord is on or off.

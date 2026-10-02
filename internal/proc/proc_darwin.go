@@ -170,16 +170,9 @@ func CommandLine(pid int) string { return strings.Join(Args(pid), " ") }
 
 func Kill(pid int, sig syscall.Signal) error { return syscall.Kill(pid, sig) }
 
-// Running is whether pid is a process that has not exited: a zombie, gone
-// but not yet waited for, is not.
-func Running(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
+// Zombie is whether pid has exited but its parent hasn't reaped it: it
+// still answers kill(pid, 0), though nothing runs.
+func Zombie(pid int) bool {
 	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
-	if err != nil || k.Proc.P_pid != int32(pid) {
-		return false
-	}
-	const zombie = 5 // SZOMB in <sys/proc.h>
-	return k.Proc.P_stat != zombie
+	return err == nil && k.Proc.P_pid == int32(pid) && k.Proc.P_stat == 5 // SZOMB
 }

@@ -7,7 +7,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/0xdeafcafe/rush/internal/agent"
-	"github.com/0xdeafcafe/rush/internal/cellw"
 	"github.com/0xdeafcafe/rush/internal/state"
 )
 
@@ -21,7 +20,7 @@ var agentExtras = map[agent.Kind]func(m *Model) []section{}
 // agentSections are what agent k's new sessions start with, then its own
 // sections, the advanced ones folded under a line of their own.
 func (m *Model) agentSections(k agent.Kind) []section {
-	secs := []section{m.startSection(k)}
+	secs := []section{m.startSection("", k)}
 	var advanced, extras []section
 	if extra := agentExtras[k]; extra != nil {
 		extras = extra(m)
@@ -60,7 +59,7 @@ func (m *Model) agentSections(k agent.Kind) []section {
 		},
 		keys: []string{"enter", "show or hide"},
 		about: func() (string, string, string) {
-			return "Advanced", "What " + agentName(string(k)) + " itself reads, beyond what rush starts it with: " + strings.Join(names, ", ") + ". Most people never need these.", ""
+			return "Advanced", "What " + harnessName(string(k)) + " itself reads, beyond what rush starts it with: " + strings.Join(names, ", ") + ". Most people never need these.", ""
 		},
 	}
 	secs = append(secs, section{rows: []setting{toggle}})
@@ -70,70 +69,40 @@ func (m *Model) agentSections(k agent.Kind) []section {
 	return secs
 }
 
-// modelTable is what each of models takes, a row each: images and PDFs
-// as its agent's MediaReader says, its context window, and the efforts
-// it starts with. What the agent doesn't know shows ?, and a footnote
-// says so. Nothing here waits: Ollama's Reads asks in the background.
-func modelTable(k agent.Kind, models []agent.Choice) []string {
-	if len(models) == 0 {
-		return nil
-	}
-	width := 17
-	for _, c := range models {
-		width = max(width, len(c.ID)+2)
-	}
-	unknown := false
-	cell := func(s string, w int) string {
-		switch s {
-		case "✓":
-			return paint(cGreen, fit(s, w))
-		case "?":
-			unknown = true
-			return paint(cYellow, fit(s, w))
-		case "–":
-			return faint(fit(s, w))
-		}
-		return dim(fit(s, w))
-	}
-	effort := "–"
-	if ch, _ := agent.ChoicesOf(k); agent.Supports(k, agent.FeatureEffort) && len(ch.Efforts) > 0 {
-		effort = ch.Efforts[0].ID + "–" + ch.Efforts[len(ch.Efforts)-1].ID
-	}
-	reader, reads := agent.As[agent.MediaReader](k)
-	windower, windows := agent.As[agent.ContextWindower](k)
-	out := []string{"", dim(fit(glyph(k)+" "+kindName(k), 2+width) + "  " + fit("images", 8) + fit("pdf", 5) + fit("context", 9) + "effort")}
-	for _, c := range models {
-		img, pdf := "?", "?"
-		if reads {
-			if has, ok := reader.Reads(c.ID); ok {
-				img, pdf = "–", "–"
-				if has&agent.MediaImage != 0 {
-					img = "✓"
-				}
-				if has&agent.MediaPDF != 0 {
-					pdf = "✓"
+// modelTakes is what model takes in agent k: images and PDFs as its
+// MediaReader says, and its context window, each only when known. Nothing
+// here waits: Ollama's Reads asks in the background.
+func modelTakes(k agent.Kind, model string) string {
+	var out []string
+	if reader, ok := agent.As[agent.MediaReader](k); ok {
+		if has, ok := reader.Reads(model); ok {
+			for _, m := range []struct {
+				bit  agent.Media
+				name string
+			}{{agent.MediaImage, "images"}, {agent.MediaPDF, "PDFs"}} {
+				if has&m.bit != 0 {
+					out = append(out, paint(cGreen, "✓ ")+dim(m.name))
+				} else {
+					out = append(out, faint("– "+m.name))
 				}
 			}
 		}
-		window := "?"
-		if windows {
-			if n := windower.ContextWindow(c.ID); n > 0 {
-				window = tokens(n)
-			}
+	}
+	if windower, ok := agent.As[agent.ContextWindower](k); ok {
+		if n := windower.ContextWindow(model); n > 0 {
+			out = append(out, dim(tokens(n)+" context"))
 		}
-		out = append(out, "  "+paint(cText, fit(c.ID, width))+"  "+cell(img, 8)+cell(pdf, 5)+cell(window, 9)+cell(effort, cellw.String(effort)))
 	}
-	if unknown {
-		out = append(out, "  "+paint(cYellow, "? ")+faint("unknown to rush until it's used"))
+	if len(out) == 0 {
+		return faint("what it takes is unknown to rush until it's used")
 	}
-	return out
+	return strings.Join(out, faint(" · "))
 }
 
 // agentModels are the models agent k's adapter offers, then any your
 // sessions have run that it didn't list.
 func (m *Model) agentModels(k agent.Kind) []agent.Choice {
-	ch, _ := agent.ChoicesOf(k)
-	models := append([]agent.Choice(nil), ch.Models...)
+	models := m.models(string(k))
 	seen := map[string]bool{}
 	for _, c := range models {
 		seen[c.ID] = true
@@ -147,9 +116,10 @@ func (m *Model) agentModels(k agent.Kind) []agent.Choice {
 	return models
 }
 
-// startSection is what agent k's new sessions start with: a model, an
-// effort and a permission mode, each the agent's own default until set.
-func (m *Model) startSection(k agent.Kind) section {
+// startSection is what agent k's new sessions on provider id start with
+// (empty is k's own way): a model, an effort and a permission mode, each
+// the agent's own default until set.
+func (m *Model) startSection(id string, k agent.Kind) section {
 	name := agentName(string(k))
 	sec := section{title: "New sessions start with", note: "sessions rush starts; running ones keep theirs"}
 	if !agent.Supports(k, agent.FeatureRun) {
@@ -165,14 +135,13 @@ func (m *Model) startSection(k agent.Kind) section {
 		return sec
 	}
 	d := &m.store.Config.Dispatch
-	kind := string(k)
-	st := d.StartFor(kind)
+	st := d.StartOn(id, k)
 	ch, _ := agent.ChoicesOf(k)
 	change := func(f func(*state.Start, string)) func(string) {
 		return func(v string) {
-			s := d.StartFor(kind)
+			s := d.StartOn(id, k)
 			f(&s, v)
-			d.SetStartFor(kind, s)
+			d.SetStartOn(id, k, s)
 		}
 	}
 	row := func(label, value, what string, list []agent.Choice, set func(*state.Start, string)) setting {

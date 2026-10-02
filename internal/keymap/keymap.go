@@ -8,10 +8,10 @@
 //
 // rush's key handling stays written against the default keys. A Map sits in
 // front of it and turns each key you press into the default key of the
-// action you bound it to: bind session.send to ctrl+enter and ctrl+enter
-// arrives as ctrl+s. A default key you moved away from does nothing, unless
+// action you bound it to: bind session.send to ctrl+x s and ctrl+x s
+// arrives as ctrl+enter. A default key you moved away from does nothing, unless
 // it types a character. An action with nothing to stand in for, a command,
-// is handed back to be run.
+// is handed back to be run, as is one that Runs.
 package keymap
 
 import (
@@ -31,6 +31,9 @@ const (
 	Global Context = "global"
 	// List is the Agents list and the Prompt under it.
 	List Context = "list"
+	// Prompt is the Prompt with something typed in it: its keys come
+	// before the list's, which have them back once it's empty.
+	Prompt Context = "prompt"
 	// Session is an agent's Session, its conversation and message box.
 	Session Context = "session"
 	// Pages is a place's pages where there's no list and Session to go
@@ -41,7 +44,7 @@ const (
 )
 
 // Contexts in the order Settings shows them.
-var Contexts = []Context{Global, List, Session, Pages, Any}
+var Contexts = []Context{Global, List, Prompt, Session, Pages, Any}
 
 // Title is how Settings names a context.
 func (c Context) Title() string {
@@ -50,6 +53,8 @@ func (c Context) Title() string {
 		return "Everywhere"
 	case List:
 		return "Agents and the Prompt"
+	case Prompt:
+		return "The Prompt, with something typed"
 	case Session:
 		return "A Session"
 	case Pages:
@@ -62,19 +67,35 @@ func (c Context) Title() string {
 
 // Action is something a key can do.
 type Action struct {
-	ID      string  // list.open, session.send, command:drafts, plugin:haven.open
+	ID      string  // list.open, session.send, command:stash, plugin:haven.open
 	Context Context //
 	Title   string  // what it does, in a few words
-	// Keys are its default keys. The first is the one a key bound to it
-	// stands in for; the rest are other keys rush already takes for it.
+	// Keys are its default keys. The first that isn't a chord is the one
+	// a key bound to it stands in for; the rest are other keys rush
+	// already takes for it.
 	Keys []string
 	// Source is who added it: "" for rush, else the plugin's name.
 	Source string
+	// Runs is handed back to be run, as a command is, though it has keys:
+	// for one whose key is another's in a context below it, or whose keys
+	// are all chords, so no key can stand in for it.
+	Runs bool
 }
 
 // Command is whether running it means calling back rather than standing in
 // for a default key.
-func (a Action) Command() bool { return len(a.Keys) == 0 }
+func (a Action) Command() bool { return len(a.Keys) == 0 || a.Runs }
+
+// standIn is the default key its other keys arrive as: the first that
+// isn't a chord, as rush's handling is written against one key.
+func (a Action) standIn() string {
+	for _, k := range a.Keys {
+		if !strings.Contains(k, " ") {
+			return k
+		}
+	}
+	return ""
+}
 
 // Seq is a key sequence: one key, or a chord of several.
 type Seq []string
@@ -329,8 +350,8 @@ func scope(c Context) []Context {
 func clash(c Context) []Context {
 	switch c {
 	case Global:
-		return []Context{Global, List, Session}
-	case Any, List, Session:
+		return []Context{Global, List, Prompt, Session}
+	case Any, List, Prompt, Session:
 		return append(scope(c), Global)
 	}
 	return nil
@@ -448,10 +469,10 @@ func (m *Map) Resolve(ctxs []Context, pending Seq, key string) Result {
 			}
 			// One of its own keys arrives as it is: rush's handling
 			// may tell them apart (ctrl+\ moves even from a box).
-			if slices.Contains(a.Keys, s) {
+			if len(seq) == 1 && slices.Contains(a.Keys, s) {
 				return Result{Key: s}
 			}
-			return Result{Key: a.Keys[0]}
+			return Result{Key: a.standIn()}
 		}
 	}
 	for _, c := range all {

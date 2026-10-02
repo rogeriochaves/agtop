@@ -1,6 +1,9 @@
 package agent
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
 
 // A provider is where a session's model comes from (Anthropic, OpenAI,
 // Ollama on this machine); a harness is the program that runs the session
@@ -57,6 +60,9 @@ func HarnessOf(k Kind) Kind {
 func Providers() []string {
 	var out []string
 	for _, a := range All() {
+		if CurrentKind(a.Kind()) != a.Kind() {
+			continue
+		}
 		if p := ProviderOf(a.Kind()); !slices.Contains(out, p) {
 			out = append(out, p)
 		}
@@ -70,7 +76,7 @@ func Providers() []string {
 func Harnesses(p string) []Kind {
 	var out []Kind
 	for _, a := range All() {
-		if ProviderOf(a.Kind()) == p {
+		if ProviderOf(a.Kind()) == p && CurrentKind(a.Kind()) == a.Kind() {
 			out = append(out, a.Kind())
 		}
 	}
@@ -86,11 +92,11 @@ func Harnesses(p string) []Kind {
 	return out
 }
 
-// KindFor is the agent that runs provider p in harness h: p's own kind
-// when h is empty or p's own harness. When that one isn't installed, the
+// KindFor is the agent that runs provider id p (as Billed reads it) in
+// harness h: p's own kind when h is empty or p's own harness. When that one isn't installed, the
 // first of p's that is. ok is false when p has no adapter at all.
 func KindFor(p string, h Kind) (Kind, bool) {
-	all := Harnesses(p)
+	all := RunsFor(p)
 	if len(all) == 0 {
 		return "", false
 	}
@@ -126,6 +132,17 @@ func ProviderLabel(p string) string {
 	return p
 }
 
+// Label is agent k as rush names it everywhere: its provider, then the
+// harness it runs in, OpenAI (Codex), Ollama (Pi); the one name alone
+// when they're the same, OpenCode.
+func Label(k Kind) string {
+	p, h := ProviderLabel(ProviderOf(k)), HarnessLabel(k)
+	if p == h || h == "" {
+		return p
+	}
+	return p + " (" + h + ")"
+}
+
 // HarnessLabel is the program agent k runs in, by name: Claude Code for
 // Ollama in Claude Code.
 func HarnessLabel(k Kind) string {
@@ -156,5 +173,48 @@ func KeyEnv(p string) string {
 // KeyOnly is whether agent k is paid for only with its provider's API
 // key: a provider that takes one, in another's harness.
 func KeyOnly(k Kind) bool {
-	return HarnessOf(k) != k && KeyEnv(ProviderOf(k)) != ""
+	return HarnessOf(k) != k && KeyEnv(ProviderOf(k)) != "" && !onPlan(k)
+}
+
+// A provider paid for two ways is two providers in rush: its
+// subscription, which only its own program signs in to, and its API key,
+// which any harness that speaks its API can use. The key one is named
+// KeyOf the provider: "claude-key" is Anthropic by API key.
+
+// Split is whether provider p is paid for both ways: a subscription its
+// own program signs in to, and an API key apart from it.
+func Split(p string) bool {
+	return KeyEnv(p) != "" && Supports(Kind(p), FeatureSignIn)
+}
+
+// KeyOf is the provider that is p paid for with its API key.
+func KeyOf(p string) string { return p + keySuffix }
+
+const keySuffix = "-key"
+
+// Billed is the provider id names, and whether it's that one's API key:
+// "claude-key" is claude by key, "claude" its subscription.
+func Billed(id string) (p string, key bool) {
+	if p, ok := strings.CutSuffix(id, keySuffix); ok && Split(p) {
+		return p, true
+	}
+	return id, false
+}
+
+// RunsFor are the agents that run provider id: a split provider's
+// subscription in its own program and in those that sign in to its plan
+// (PlanRider), its key in any other that speaks its API; any other provider
+// in all of Harnesses.
+func RunsFor(id string) []Kind {
+	p, key := Billed(id)
+	all := Harnesses(p)
+	if !Split(p) {
+		return all
+	}
+	return slices.DeleteFunc(all, func(k Kind) bool {
+		if key {
+			return onPlan(k)
+		}
+		return k != Kind(p) && !onPlan(k)
+	})
 }

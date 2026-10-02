@@ -75,6 +75,9 @@ func (m *Model) keyContexts() []keymap.Context {
 	if m.paneFocus && m.host != nil {
 		return []keymap.Context{keymap.Session}
 	}
+	if m.inKind == inPrompt && len(m.input) > 0 {
+		return []keymap.Context{keymap.Prompt, keymap.List}
+	}
 	return []keymap.Context{keymap.List}
 }
 
@@ -104,6 +107,9 @@ func (m *Model) remapKey(k *tea.KeyPressMsg, s *string) (tea.Cmd, bool) {
 		m.keys.capture = nil
 		return f(*s), true
 	}
+	if m.embedded && *s == "ctrl+]" {
+		return nil, false // always hands Claude Code's screen back, never a chord
+	}
 	if len(m.keys.chord) > 0 && time.Since(m.keys.chordAt) > chordWait {
 		m.keys.chord = nil
 	}
@@ -131,8 +137,8 @@ func (m *Model) remapKey(k *tea.KeyPressMsg, s *string) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// runAction runs a command action: a # command on the agent in view, or a
-// plugin's command.
+// runAction runs a command action: a # command on the agent in view, a
+// plugin's command, or one of the Prompt's.
 func (m *Model) runAction(id string) tea.Cmd {
 	a := m.selected()
 	if m.paneFocus && m.host != nil {
@@ -144,5 +150,32 @@ func (m *Model) runAction(id string) tea.Cmd {
 	if rest, ok := strings.CutPrefix(id, "plugin:"); ok {
 		return m.runPluginCommand(rest, a)
 	}
+	switch id {
+	case "session.history.open", "session.history.close":
+		m.setHistoryFold(id == "session.history.open")
+		return nil
+	case "session.setup":
+		if m.host != nil {
+			return m.openSwitchSheet(m.host)
+		}
+		return nil
+	case "session.mode":
+		return m.cycleSessionPermission()
+	case "guide.open":
+		m.helpPage = 1
+		if m.paneFocus && m.host != nil {
+			m.helpPage = 3
+		}
+		m.mode = modeHelp
+		return nil
+	case "prompt.stash":
+		return m.stashCommand("stash")
+	case "prompt.history":
+		return m.stashCommand("history")
+	}
 	return nil
+}
+
+func (m *Model) cycleSessionPermission() tea.Cmd {
+	return m.permissionCommand(m.host, "", false)
 }

@@ -71,12 +71,22 @@ type confirmation struct {
 	// escIsNo makes esc answer n rather than cancel; noEnter keeps enter
 	// from answering y, for a yes that shouldn't go by accident.
 	escIsNo, noEnter bool
+	// more are choices beside yes, each on a key of its own.
+	more []confirmChoice
+}
+
+// confirmChoice is a key a confirmation takes beside y and n.
+type confirmChoice struct {
+	key, text string
+	do        func() tea.Cmd
 }
 
 type Model struct {
 	reloadFields // #reload, and what it carries
 	// vault is the vault check's answers for the Prompt's message.
 	vault vaultGate
+	// upd is Settings › Updates, and the count in the key line.
+	upd updatesState
 	// sendModes are how enter sends to each session while it works, by key.
 	sendModes map[string]sendMode
 	// keys is the keymap in force: see keybind.go.
@@ -111,27 +121,31 @@ type Model struct {
 	// account key.
 	quotas    map[string]usage.Quota
 	accts     accountsState
-	startOver *startOver // what the next session starts as, picked with alt+m
-	resumedAt time.Time  // when sessions a limit stopped were last told to carry on
+	startOver *startOver                // what the next session starts as, picked on the start sheet
+	listed    map[string][]agent.Choice // models read from an agent's home (Codex's cache), by kind
+	resumedAt time.Time                 // when sessions a limit stopped were last told to carry on
 
-	sel          string
-	shown        string // the agent last picked, still shown while a folded section is
-	order        []*fleet.Agent
-	lines        []listLine
-	scroll       int
-	preview      bool
-	full         bool
-	peekFrom     string // the agent whose Session alone you left to peek at Agents
-	previews     map[string]previewEntry
-	btws         map[string]*btwThread // agents' side threads (/btw), by key
-	live         *live
-	liveOpening  string
-	liveFailed   string
-	liveFailedAt time.Time
-	hover        string
-	rowKeys      []string
-	listTop      int
-	lastClick    time.Time
+	sel                string
+	shown              string // the agent last picked, still shown while a folded section is
+	order              []*fleet.Agent
+	lines              []listLine
+	scroll             int
+	preview            bool
+	full               bool
+	peekFrom           string // the agent whose Session alone you left to peek at Agents
+	previews           map[string]previewEntry
+	btws               map[string]*btwThread // agents' side threads (/btw), by key
+	live               *live
+	liveOpening        string
+	liveFailed         string
+	liveFailedAt       time.Time
+	headerPointerLines [2]string
+	headerIconTail     string
+	topHover           headerHover
+	hover              string
+	rowKeys            []string
+	listTop            int
+	lastClick          time.Time
 	// pressAt and pressXY are the last left press, and dbl whether the
 	// one being handled is a second on the same cell: a double-click.
 	pressAt time.Time
@@ -178,11 +192,18 @@ type Model struct {
 	statusErr bool
 	statusAt  time.Time
 	quitArmed time.Time
+	// escAt is when esc last met an empty box in escKey's Session: esc
+	// again soon after asks to close it (askClose).
+	escAt     time.Time
+	escKey    string
 	confirm   *confirmation
 	chipHot   chipHover
 	dialog    *dialog
 	picker    *picker
-	sheet     sheet // /fork, /rewind, /plugins, /statusline, /skills: see sheet.go
+	community *communitySheet // shared local help board
+	roomFeed  *roomFeed       // the room the pane shows: see roomfeed.go
+	rooms     roomRows        // rooms as list rows: see roomrows.go
+	sheet     sheet           // /fork, /rewind, /plugins, /statusline, /skills: see sheet.go
 	// rewound holds the message /rewind put back, by agent, for the box
 	// once the pane reconnects.
 	rewound   map[string]string
@@ -192,7 +213,6 @@ type Model struct {
 	promptFor string
 	listW     int
 	pastes    pastes // long pastes in the main box, shown as chips
-	recall    recall // alt+p going back through the drafts, in the Prompt
 	blurred   bool   // the terminal says rush isn't the focused window
 	// undo is the Prompt's; a Session's box has its own.
 	undo undoStack
@@ -215,6 +235,7 @@ type Model struct {
 	ptrSeen      bool
 	pointer      string // the pointer's shape last asked of the terminal
 	sheetAt      [2]int // where the open sheet's body was drawn: x, y
+	over         overlayHit // the box over the screen, as last drawn, for the mouse
 	hibernated   map[string]bool
 	offline      bool // never ask Anthropic for usage (--soak)
 	// newer is the rush that's out when it's newer than this one; #update
@@ -284,8 +305,9 @@ type Model struct {
 	renamed      map[*fleet.Agent]string
 	// drawing is set while View draws a frame, when nothing changes:
 	// kindMemo keeps what startKindIn worked out for it.
-	drawing  bool
-	kindMemo kindMemo
+	drawing      bool
+	kindMemo     kindMemo
+	accountFrame accountFrame
 
 	// relayPending is whether a relayoutMsg is on its way.
 	relayPending bool
@@ -329,6 +351,7 @@ func New(store *state.Store, version string) *Model { return newModel(store, ver
 // skipPast (see fleet.Loader.SkipPast) until something needs every agent.
 func newModel(store *state.Store, version string, skipPast bool) *Model {
 	dir := os.Getenv("PWD") // the shell's word for now: Init asks the kernel
+	convo.SetPixelPictures(store.Config.PixelPictures)
 	m := &Model{
 		store: store, loader: fleet.NewLoader(store), scanner: fleet.NewScanner(),
 		launchDir: dir, version: version, previews: map[string]previewEntry{},
@@ -421,7 +444,7 @@ func (m *Model) Init() tea.Cmd {
 		// Only the one session: nothing about the app as a whole.
 		return tea.Batch(m.loadSnapCmd(), loadBars, launchDir, tick(), m.scan(), m.loadPreview(), askColours, m.loadKeys(), m.startHooks())
 	}
-	return tea.Batch(m.loadSnapCmd(), loadBars, launchDir, tick(), m.scan(), m.loadKeys(), m.startHooks(), m.watchNet(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), m.checkPluginApprovals(), askColours)
+	return tea.Batch(m.loadSnapCmd(), loadBars, launchDir, tick(), m.scan(), m.loadKeys(), m.startHooks(), m.watchNet(), m.fetchUsage(), m.findLogins(), m.fetchQuotas(), m.startMenuBar(), m.startView(), m.checkUpdate(), m.checkHarnesses(false), m.checkPluginApprovals(), askColours)
 }
 
 // askColours asks the terminal for its background and text, which rush's
@@ -681,6 +704,9 @@ func (m *Model) mouseClick(x, y int) tea.Cmd {
 		m.toggleFold(strings.TrimPrefix(k, "§"))
 		return nil
 	}
+	if cmd, ok := m.openRoomFor(m.selected()); ok {
+		return cmd // a room, or one of its agents: the room opens
+	}
 	if double {
 		return m.attach(m.selected())
 	}
@@ -773,6 +799,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.relayPending = false
 		return m, m.relayout()
 	}
+	if m.onCellSize(msg) {
+		return m, nil
+	}
 	if c := m.host; c != nil {
 		c.scrollOnly = false // set again by a message that only scrolls
 	}
@@ -793,7 +822,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if c := m.host; c != nil && c.paneKick && !c.paneReading {
 		c.paneKick, paneCmd = false, m.refreshSubs()
 	}
-	return m, tea.Batch(cmd, copyCmd, fxCmd, paneCmd, m.fastTick(), m.relayout(), m.syncLive(), m.syncHost(), m.syncWatch(), m.loadSnapCmd(), m.asks())
+	return m, tea.Batch(cmd, copyCmd, fxCmd, paneCmd, pictureCmds(msg), m.fastTick(), m.relayout(), m.syncLive(), m.syncHost(), m.syncWatch(), m.loadSnapCmd(), m.asks())
 }
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -836,6 +865,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case spawnFoundMsg:
 		m.onSpawnFound(msg)
 		return m, nil
+	case tempMeasuredMsg:
+		return m, m.onTempMeasured(msg)
 	case tempMsg:
 		m.onTemp(msg)
 		return m, nil
@@ -902,6 +933,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.flash("started "+msg.name+" · it's in rush's Agents", false)
 			return m, nil
 		}
+		if old := m.agentByKey(msg.retire); old != nil && !old.Done {
+			m.toggleDone(old)
+		}
 		// Select the new session, once a reading has it, and give it the keys.
 		m.refresh()
 		m.selectOnLoad = state.Key(msg.acct, "a:"+msg.id)
@@ -910,7 +944,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
-		return m, nil
+		return m, askCell()
 	case snapMsg:
 		return m, m.onSnap(msg)
 	case shellsMsg:
@@ -929,11 +963,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		m.zenPick()
 		m.emitHooks()
-		cmds := []tea.Cmd{tick(), m.watchBinary(), m.refreshSpawns(), m.refreshFolders(), m.refreshSubs(), m.flushLocalQueues(), m.flushSubQueues(), m.watchOnline()}
+		cmds := []tea.Cmd{tick(), m.watchBinary(), m.recheckAfter(), m.refreshSpawns(), m.refreshFolders(), m.refreshSubs(), m.flushLocalQueues(), m.flushSubQueues(), m.watchOnline()}
 		if m.hosted == "" {
 			// autoSwitch too: a session's usage reading arrives with the
 			// snapshot, not with a fetch.
-			cmds = append(cmds, m.movePending(), m.measureTemp(), m.tidy(), m.squeezeTranscripts(), m.autoSwitch())
+			cmds = append(cmds, m.movePending(), m.tidy(), m.squeezeTranscripts(), m.autoSwitch())
+		}
+		if m.hosted == "" || m.mode == modeProjects {
+			cmds = append(cmds, m.measureTemp())
 		}
 		if m.mode == modeEff && !m.eff.loading && time.Since(m.eff.loaded) > 30*time.Second {
 			cmds = append(cmds, m.effLoad(true)) // new transcript lines, every 30s while it's open
@@ -1095,7 +1132,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuiltSaid = true
 			m.flash("rush "+msg.to.Short()+" installed · #reload runs it, sessions carry on", false)
 		}
-		return m, nil
+		return m, m.watchHosts(false)
 	case shotMsg:
 		if m.picker != nil && m.picker.img == msg.path && m.picker.big == msg.big {
 			m.picker.shot = msg.rows
@@ -1169,6 +1206,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.PasteMsg:
+		if s, ok := m.sheet.(*roomSetup); ok {
+			s.paste(msg.Content)
+			return m, nil
+		}
+		if s, ok := m.sheet.(*communitySheet); ok {
+			s.paste(msg.Content)
+			return m, nil
+		}
 		if s, ok := m.sheet.(*signInSheet); ok {
 			s.paste(msg.Content)
 			return m, nil
@@ -1258,6 +1303,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onIntercepted(msg)
 	case tea.MouseMotionMsg:
 		wasOver := m.ptrSeen && m.ptrX > m.listW+1
+		wasList := m.ptrSeen && m.ptrX < m.listW
 		m.ptrX, m.ptrY, m.ptrSeen = msg.X, msg.Y, true
 		// An open sheet has the mouse, as it has the keys.
 		if m.sheet != nil {
@@ -1266,6 +1312,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.pointerShape("default")
 			}
 			return m, tea.Batch(m.sheetMouse(mouseDrag, msg.X, msg.Y), m.pointerShape("grabbing"))
+		}
+		if c := m.host; c != nil && c.minimap.dragging {
+			if msg.Button == tea.MouseLeft {
+				m.dragMinimap(c, msg.Y)
+				return m, m.pointerShape("grabbing")
+			}
+			c.minimap.dragging = false
 		}
 		if t := m.btwDragging(); t != nil {
 			if msg.Button == tea.MouseLeft {
@@ -1302,6 +1355,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		hover := m.hover
 		changed := on != m.divHover
 		changed = m.hoverChip(msg.X, msg.Y) || changed
+		changed = m.hoverPane(msg.X, msg.Y) || changed
+		changed = m.hoverHeader(msg.X, msg.Y) || changed
 		if m.dialog != nil && m.dialog.page == pageKeys && m.sheet == nil {
 			changed = m.keysHover(msg.Y) || changed
 		}
@@ -1312,9 +1367,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			changed = c.queueHover(y) || changed
 		}
-		// The pointer coming onto the Session gives it the keys, once as it
-		// crosses: tab back to Agents holds while the pointer stays put.
-		if focused := m.paneFocus; !wasOver && msg.Button == tea.MouseNone && msg.X > m.listW+1 {
+		// The pointer coming onto the Session or the list gives it the keys,
+		// once as it crosses: tab to the other holds while the pointer stays put.
+		if focused := m.paneFocus; msg.Button == tea.MouseNone && (!wasOver && msg.X > m.listW+1 || !wasList && msg.X < m.listW) {
 			m.focusAt(msg.X, msg.Y)
 			changed = changed || m.paneFocus != focused
 		}
@@ -1326,8 +1381,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		want := "default"
 		switch {
+		case m.host != nil && m.host.minimap.hit(msg.X, msg.Y):
+			want = "pointer"
 		case on:
 			want = "ew-resize"
+		case m.topHover.valid || m.hover != "" || m.host != nil && m.host.pointerHover != (paneHover{}):
+			want = "pointer"
 		case m.host != nil && m.host.subHover != "", m.chipHot.box != 0:
 			want = "pointer" // a run or a paste to open, or the banner to go back
 		}
@@ -1337,6 +1396,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.sheetMouse(mouseRelease, msg.X, msg.Y), m.pointerShape("default"))
 		}
 		var cmd tea.Cmd
+		if c := m.host; c != nil && c.minimap.dragging {
+			m.dragMinimap(c, msg.Y)
+			c.minimap.dragging = false
+			return m, m.pointerShape("default")
+		}
 		if t := m.btwDragging(); t != nil {
 			m.endBtwDrag(t)
 		}
@@ -1357,12 +1421,29 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			at := [2]int{msg.X, msg.Y}
 			m.dbl = at == m.pressXY && time.Since(m.pressAt) < 400*time.Millisecond
 			m.pressAt, m.pressXY = time.Now(), at
+			if cmd, ok := m.overlayClick(msg.X, msg.Y); ok {
+				return m, cmd // a sheet, question or menu: see overlayclick.go
+			}
 		}
 		if m.sheet != nil {
 			if msg.Button == tea.MouseLeft {
 				return m, m.sheetMouse(mousePress, msg.X, msg.Y)
 			}
 			return m, nil
+		}
+		if m.dialog != nil {
+			if msg.Button == tea.MouseLeft {
+				if cmd, ok := m.clickTab(msg.X, msg.Y); ok {
+					return m, cmd
+				}
+				return m, m.settingsMouse(msg.X, msg.Y)
+			}
+			return m, nil
+		}
+		if msg.Button == tea.MouseLeft {
+			if cmd := m.draftImage(msg.X, msg.Y); m.sheet != nil {
+				return m, cmd
+			}
 		}
 		if msg.Button == tea.MouseLeft && m.clickBox(msg.X, msg.Y) {
 			return m, nil
@@ -1383,10 +1464,38 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.embedded = true
 			}
 			m.host.txt.on = false // a click elsewhere drops what was dragged over
+			if m.contextAt(m.host, msg.X, msg.Y) {
+				return m, m.openInfo(m.host, infoContext)
+			}
+			if m.clickPaneTab(m.host, msg.X, msg.Y) {
+				return m, nil
+			}
+			if m.clickHistory(m.host, msg.X, msg.Y) {
+				return m, nil
+			}
+			if m.clickLabel(m.host, msg.X, msg.Y) {
+				return m, m.openSwitchSheet(m.host)
+			}
 			if cmd, ok := m.clickCard(m.host, msg.X, msg.Y); ok {
 				return m, cmd
 			}
 			if m.clickBtw(m.host, msg.X, msg.Y) {
+				return m, nil
+			}
+			if m.stripClick(m.host, msg.X, msg.Y) {
+				return m, nil
+			}
+			if m.pressMinimap(m.host, msg.X, msg.Y) {
+				return m, m.pointerShape("grabbing")
+			}
+			if !m.embedded {
+				if cmd, ok := m.clickMessage(m.host, msg.X, msg.Y); ok {
+					return m, cmd
+				}
+			}
+			if m.subPreviewAt(m.host, msg.X, msg.Y) {
+				m.openSub(m.host, m.host.subPreview.id)
+				m.host.scrollOnly = false
 				return m, nil
 			}
 			if !m.embedded && m.startTextSel(m.host, msg.X, msg.Y) {
@@ -1406,6 +1515,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.mouseClick(msg.X, msg.Y)
 		}
 	case tea.MouseWheelMsg:
+		if cmd, ok := m.overlayWheel(msg.Button == tea.MouseWheelUp); ok {
+			return m, cmd
+		}
 		if m.sheet != nil {
 			ev := mouseWheelDown
 			if msg.Button == tea.MouseWheelUp {
@@ -1413,10 +1525,27 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.sheetMouse(ev, msg.X, msg.Y)
 		}
+		if m.dialog != nil {
+			delta := 3
+			if msg.Button == tea.MouseWheelUp {
+				delta = -3
+			}
+			return m, m.settingsWheel(msg.X, msg.Y, delta)
+		}
 		// The wheel scrolls whatever is under the pointer: over the pane it
 		// scrolls the conversation, and never moves the list behind it.
 		if _, paneW, _ := m.layout(); m.mode == modeList && m.dialog == nil && paneW > 0 && (m.listW == 0 || msg.X > m.listW) {
 			if c := m.host; c != nil {
+				if m.subPreviewAt(c, msg.X, msg.Y) {
+					delta := -3
+					if msg.Button == tea.MouseWheelUp {
+						delta = 3
+					}
+					p := &c.subPreview
+					p.scroll = max(0, min(p.scroll+delta, max(0, p.total-p.rows)))
+					c.scrollOnly = true
+					return m, nil
+				}
 				switch msg.Button {
 				case tea.MouseWheelUp:
 					c.scroll += 3
@@ -1736,7 +1865,7 @@ func (m *Model) rebuild() {
 			g.recent = a.UpdatedAt
 		}
 	}
-	for _, a := range m.snap.Agents {
+	for _, a := range m.roomize(m.snap.Agents) { // a room is one row, its members under it
 		if m.zen && !a.NeedsYou() && !a.Waiting() {
 			continue // Zen's list is only the agents waiting on you
 		}
@@ -1904,6 +2033,11 @@ func (m *Model) rebuild() {
 				}
 			}
 			m.lines = append(m.lines, listLine{kind: lineAgent, agent: a, inset: inset})
+			for _, mb := range m.roomMembers(a) {
+				m.order = append(m.order, mb)
+				m.groupOf[mb.Key] = g.name
+				m.lines = append(m.lines, listLine{kind: lineAgent, agent: mb, inset: inset})
+			}
 		}
 		m.lines = append(m.lines, listLine{kind: lineBlank})
 	}

@@ -2,6 +2,7 @@ package keymap
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -186,5 +187,94 @@ func TestOwnDefaultKeysArriveAsPressed(t *testing.T) {
 		if r := m.Resolve(nil, nil, k); r.Key != k {
 			t.Errorf("%q became %+v", k, r)
 		}
+	}
+}
+
+// The Prompt's keys come first while something's typed, and are run; the
+// list's own have the same keys back once it's empty, or once you move
+// the Prompt's.
+func TestPromptBeforeList(t *testing.T) {
+	acts := []Action{
+		{ID: "list.groupby", Context: List, Keys: []string{"ctrl+s"}},
+		{ID: "prompt.stash", Context: Prompt, Keys: []string{"ctrl+s"}, Runs: true},
+	}
+	m := Build(acts, File{}, nil)
+	if p := m.Problems(); len(p) != 0 {
+		t.Fatal(p)
+	}
+	if r := m.Resolve([]Context{Prompt, List}, nil, "ctrl+s"); r.Run != "prompt.stash" {
+		t.Errorf("typed = %+v", r)
+	}
+	if r := m.Resolve([]Context{List}, nil, "ctrl+s"); r.Key != "ctrl+s" || r.Run != "" {
+		t.Errorf("empty = %+v", r)
+	}
+	m = Build(acts, File{Bindings: map[string][]string{"prompt.stash": {"ctrl+x s"}}}, nil)
+	if r := m.Resolve([]Context{Prompt, List}, nil, "ctrl+s"); r.Key != "ctrl+s" || r.Run != "" {
+		t.Errorf("moved = %+v", r)
+	}
+	if r := m.Resolve([]Context{Prompt, List}, Seq{"ctrl+x"}, "s"); r.Run != "prompt.stash" {
+		t.Errorf("chord = %+v", r)
+	}
+}
+
+// rush's own keys don't clash, and none needs the option key: every
+// action has one without ⌥, and no two share a key (or a chord's first
+// key) where both are live. The Prompt's shadow the list's by design.
+func TestDefaultsBuildClean(t *testing.T) {
+	m := Build(Defaults, File{}, nil)
+	if p := m.Problems(); len(p) != 0 {
+		t.Fatal(p)
+	}
+	// The terminal's (ctrl+c, and enter, tab, backspace, esc as ctrl keys)
+	// and the boxes' editing keys, taken nowhere a box can have the keys.
+	taken := []string{"ctrl+c", "ctrl+m", "ctrl+i", "ctrl+h", "ctrl+[", "ctrl+j", "ctrl+a", "ctrl+e", "ctrl+w", "ctrl+u"}
+	for _, a := range Defaults {
+		if len(a.Keys) > 0 && !slices.ContainsFunc(a.Keys, func(k string) bool { return !strings.Contains(strings.Fields(k)[0], "alt+") }) {
+			t.Errorf("%s has only ⌥ keys: %v", a.ID, a.Keys)
+		}
+		for _, k := range a.Keys {
+			if slices.Contains(taken, strings.Fields(k)[0]) && a.Context != Pages {
+				t.Errorf("%s: %s is the terminal's or a box's", a.ID, k)
+			}
+		}
+	}
+	for _, c := range Contexts {
+		seen := map[string]string{}
+		for _, a := range Defaults {
+			if !slices.Contains(scope(a.Context), c) && (a.Context != Global || c == Any) {
+				continue
+			}
+			for _, k := range a.Keys {
+				if other, ok := seen[k]; ok {
+					t.Errorf("%s: %s is both %s and %s", c, k, other, a.ID)
+				}
+				seen[k] = a.ID
+			}
+		}
+		for k, id := range seen {
+			if first, _, chord := strings.Cut(k, " "); chord {
+				if other, ok := seen[first]; ok {
+					t.Errorf("%s: %s is %s, and %s's chord %s starts with it", c, first, other, id, k)
+				}
+			}
+		}
+	}
+	if s, p := m.KeyText("session.stash"), m.KeyText("prompt.stash"); s != p {
+		t.Errorf("the stash is %s in a Session but %s in the Prompt", s, p)
+	}
+}
+
+// A default chord arrives as its action's key rush's handling knows: ctrl+]
+// then h as ⌥h.
+func TestDefaultChordArrivesAsItsKey(t *testing.T) {
+	m := Build(Defaults, File{}, nil)
+	if r := m.Resolve([]Context{Session}, nil, "ctrl+]"); !slices.Equal(r.Pending, Seq{"ctrl+]"}) {
+		t.Fatalf("ctrl+] = %+v", r)
+	}
+	if r := m.Resolve([]Context{Session}, Seq{"ctrl+]"}, "h"); r.Key != "alt+h" {
+		t.Errorf("ctrl+] h = %+v", r)
+	}
+	if r := m.Resolve([]Context{List}, nil, "ctrl+d"); r.Key != "ctrl+d" {
+		t.Errorf("ctrl+d = %+v", r)
 	}
 }
