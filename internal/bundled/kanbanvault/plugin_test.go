@@ -82,6 +82,10 @@ func TestTakenNameIsOfferedAgain(t *testing.T) {
 	if got := done.Apply("OPENAI_API_KEY=" + key); got != secrets.Replace("OPENAI_API_KEY="+key, key, "OPENAI_API_KEY_2") {
 		t.Fatalf("sent %q", got)
 	}
+	// The next secret's question knows the name just saved.
+	if next := a.intercept(plugin.Intercept{Box: "s1", Text: "OPENAI_API_KEY=" + key + "x"}); next.Question != "Save as vault secret OPENAI_API_KEY_3?" {
+		t.Fatalf("next %+v", next)
+	}
 }
 
 // A secret you let go isn't asked about again in that box until it's sent

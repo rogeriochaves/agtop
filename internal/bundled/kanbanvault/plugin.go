@@ -281,6 +281,9 @@ func (a *app) answer(ctx context.Context, in plugin.Intercept, id, key string) p
 	if err := a.vault.Add(ctx, q.name, q.value); err != nil {
 		return a.failed(q, err, plugin.InterceptResult{})
 	}
+	a.mu.Lock()
+	a.names = append(slices.Clone(a.names), q.name)
+	a.mu.Unlock()
 	a.notify("saved " + q.name + " to the vault")
 	return a.then(q.box, in.Text, Swap(in.Text, q.value, q.name))
 }
