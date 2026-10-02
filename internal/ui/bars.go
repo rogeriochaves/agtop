@@ -166,7 +166,7 @@ func (m *Model) versionTag() string {
 }
 
 var agentSegs = []barSeg{
-	{"context", "Context", "context fullness; click the header readout for token counts and breakdown", func(x *barCtx) string { return headerContext(x.c) }},
+	{"context", "Context", "context fullness; click the header readout for token counts and breakdown", func(x *barCtx) string { return headerContext(x.c, x.a) }},
 	{"context-detail", "Context details", "tokens used, context capacity and fullness gauge", func(x *barCtx) string {
 		s := x.c.sess
 		if s.Context <= 0 {

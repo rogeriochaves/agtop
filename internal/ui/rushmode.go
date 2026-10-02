@@ -2416,7 +2416,7 @@ func (m *Model) paneHeader(a *fleet.Agent, c *hostConn, w int) []string {
 	right := m.barLine(barAgent, 0, x, hw-cellw.String(left1)-4)
 	row1 := spread(left1, right+" ", hw)
 	c.contextLabel = [2]int{}
-	if value := headerContext(c); value != "" {
+	if value := headerContext(c, a); value != "" {
 		plain, metric := ansi.Strip(row1), ansi.Strip(value)
 		if i := strings.LastIndex(plain, metric); i >= 0 && strings.Contains(ansi.Strip(right), metric) {
 			c.contextLabel = [2]int{cellw.String(plain[:i]), cellw.String(metric)}
