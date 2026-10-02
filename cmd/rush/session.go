@@ -30,6 +30,9 @@ const sessionUsage = `rush session: run rush-mode sessions without the view
   or vibe. Without it, the session's profile picks: --profile names one,
   else the folder's rule or the default profile says.
   rush session send <id> [--now] [--image PATH]...   message text on stdin
+  rush session answer <id> [--deny] [--request ID]    answer text on stdin
+        answers the question the session waits on, or allows the tool call
+        it asks permission for; --deny declines it
   rush session interrupt <id>
   rush session stop <id>
   rush session info <id> [--json]
@@ -64,6 +67,8 @@ func sessionCmd(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		asJSON, err = sessionStart(rest, stdout)
 	case "send":
 		err = sessionSend(rest, stdin, stdout)
+	case "answer":
+		err = sessionAnswer(rest, stdin, stdout)
 	case "interrupt":
 		err = sessionControl(rest, stdout, false)
 	case "stop":
