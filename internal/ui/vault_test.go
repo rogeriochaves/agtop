@@ -80,7 +80,7 @@ func TestPastedKeyAsksToSaveIt(t *testing.T) {
 		t.Fatalf("saved %v", f.added)
 	}
 	sent := sentText(t, c)
-	want := "deploy with {{vault:OPENAI_API_KEY_2}} please" + secrets.Note("OPENAI_API_KEY_2")
+	want := "deploy with {{vault:OPENAI_API_KEY_2}} please\n\n" + secrets.UsageLine("OPENAI_API_KEY_2")
 	if sent != want {
 		t.Errorf("sent %q, want %q", sent, want)
 	}
