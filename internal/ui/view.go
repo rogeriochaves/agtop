@@ -603,6 +603,9 @@ func (c *confirmation) keys() string {
 	if c.onBang != nil && c.bangText != "" {
 		keys += "   " + paint(cOrange, "!") + dim(" "+c.bangText)
 	}
+	if c.onNo != nil && c.escIsNo {
+		return keys + "   " + paint(cOrange, "n/esc") + dim(" "+c.noText) + "   " + paint(cOrange, "ctrl+c") + dim(" cancel")
+	}
 	if c.onNo != nil {
 		return keys + "   " + paint(cOrange, "n") + dim(" "+c.noText) + "   " + paint(cOrange, "esc") + dim(" cancel")
 	}
