@@ -18,8 +18,9 @@ const skippedQuestion = "The user skipped the question; carry on with your best 
 // sessionAnswer settles what a session is waiting on, as the view's card
 // does: the text on stdin answers its question (the first one, when it asks
 // several), and a tool call it asks permission for is allowed. --deny
-// declines either; --request names the request, so an answer meant for one
-// that was settled meanwhile doesn't land on the next.
+// declines either; --request names the request (its id, or the tool call's),
+// so an answer meant for one that was settled meanwhile doesn't land on the
+// next.
 func sessionAnswer(args []string, stdin io.Reader, stdout io.Writer) error {
 	fs := newFlags("answer")
 	var (
@@ -56,7 +57,7 @@ func sessionAnswer(args []string, stdin io.Reader, stdout io.Writer) error {
 	switch {
 	case r == nil:
 		return fmt.Errorf("session %s is not waiting on an answer", id)
-	case request != "" && r.ID != request:
+	case request != "" && r.ID != request && r.CallID != request:
 		return fmt.Errorf("session %s is not waiting on %s any more", id, request)
 	}
 	switch {
@@ -99,8 +100,9 @@ func sessionAnswer(args []string, stdin io.Reader, stdout io.Writer) error {
 // asking is a request a session waits on: a question, or a tool call to
 // allow.
 type asking struct {
-	ID string
-	Q  *event.Question
+	ID     string
+	CallID string // the tool call it is about
+	Q      *event.Question
 }
 
 // waits are what a replay asked and hasn't yet settled, in order.
@@ -112,11 +114,11 @@ type waits struct {
 func (w *waits) take(ev any) {
 	switch ev := ev.(type) {
 	case event.Approval:
-		w.open[ev.ID] = &asking{ID: ev.ID}
+		w.open[ev.ID] = &asking{ID: ev.ID, CallID: ev.Call.ID}
 		w.order = append(w.order, ev.ID)
 	case event.Question:
 		q := ev
-		w.open[ev.ID] = &asking{ID: ev.ID, Q: &q}
+		w.open[ev.ID] = &asking{ID: ev.ID, CallID: ev.CallID, Q: &q}
 		w.order = append(w.order, ev.ID)
 	case event.ApprovalCancelled:
 		delete(w.open, ev.ID)

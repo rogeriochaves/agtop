@@ -53,7 +53,7 @@ func TestAnswerSettlesTheQuestion(t *testing.T) {
 	if out, code := run(t, "Coffee", "answer", "11111111", "--request", "nope"); code == 0 {
 		t.Fatalf("an answer for another request went through: %s", out)
 	}
-	if out, code := run(t, "Coffee", "answer", "11111111"); code != 0 {
+	if out, code := run(t, "Coffee", "answer", "11111111", "--request", "t1"); code != 0 {
 		t.Fatalf("answer: exit %d: %s", code, out)
 	}
 	got := answersLog(t, dir, 1)[0]
