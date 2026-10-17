@@ -38,6 +38,8 @@ Plugins run under `rush plugind`, one small process rush starts once a plugin is
 
 Some plugins come with rush. Their code is rush's own, so they need no approval and run without the sandbox, on every system, as `rush plugin run <name>`; what they may do in rush's screen and to your sessions is still their manifest's, checked by the broker as for any plugin. Each is on until you turn it off, in Settings, Plugins, or with `rush plugin off <name>` (`on` to turn it back). A plugin you install with the name of a bundled one doesn't run.
 
+**allow** (off until you turn it on) answers yes to every permission prompt your Claude Code sessions ask, including the checks Claude Code still asks for in bypass mode, such as `cd a && rm -rf ../../b/*`. AskUserQuestion and ExitPlanMode still come to you, and a session in plan mode still asks. It is for machines where something else guards what agents do, a sandbox or a vault for credentials. Turn it on with `rush plugin on allow`; a running session picks it up the next time its Claude Code starts.
+
 **gate** (off until you turn it on) queues intensive programs your agents run, so a handful of sessions don't all start `tsc` at once. Each session rush starts finds a shim for each queued program first on its PATH, whatever the agent, and Claude Code sessions also get a hook that puts a Bash call running one (`npx tsc`, `pnpm exec vitest` too) under `rush gate run`; the program then waits for a slot, and `rush gate status` shows who runs and who waits. `rush gate run [--name N] [--dir D] -- cmd…` does the same by hand. Its settings, in Settings, Plugins:
 
 - **Programs**: the names to queue (default `tsc, tsgo, go, cargo, webpack, vite, vitest, jest, next, rustc`).
