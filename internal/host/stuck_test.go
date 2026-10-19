@@ -13,18 +13,24 @@ import (
 )
 
 // A shell whose tree uses no CPU for stuckAfter is hung, and stopped; one
-// at work isn't.
+// at work, or one sleeping a set time, isn't.
 func TestStuckShellIsStopped(t *testing.T) {
-	idle := exec.Command("sh", "-c", "sleep 60; true")
+	idle := exec.Command("sh", "-c", "cat; true")
+	stdin, err := idle.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdin.Close()
 	busy := exec.Command("sh", "-c", "while :; do :; done")
-	for _, c := range []*exec.Cmd{idle, busy} {
+	asleep := exec.Command("sh", "-c", "sleep 60; true")
+	for _, c := range []*exec.Cmd{idle, busy, asleep} {
 		if err := c.Start(); err != nil {
 			t.Fatal(err)
 		}
 		defer c.Process.Kill()
 	}
 	time.Sleep(300 * time.Millisecond) // both settled into what they do
-	shells := []int{idle.Process.Pid, busy.Process.Pid}
+	shells := []int{idle.Process.Pid, busy.Process.Pid, asleep.Process.Pid}
 	seen := map[int]treeUse{}
 	now := time.Now()
 	if got := idleShells(proc.Snapshot(nil), shells, seen, now); len(got) != 0 {
