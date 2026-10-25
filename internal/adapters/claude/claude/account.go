@@ -56,12 +56,14 @@ func (a Account) StatePath() string {
 // inherited are the markers a Claude Code session sets for what it runs.
 // rush started from inside one would pass them on, and the sessions rush
 // starts would think they're that session's children: Claude Code then
-// saves no transcript for them, among other things.
+// saves no transcript for them, among other things. TRACEPARENT and
+// TRACESTATE would make every session's telemetry join that one's trace.
 var inherited = map[string]bool{
 	"CLAUDECODE": true, "CLAUDE_CODE_CHILD_SESSION": true, "CLAUDE_CODE_SESSION_ID": true,
 	"CLAUDE_CODE_ENTRYPOINT": true, "CLAUDE_CODE_SESSION_ATTENDED": true, "CLAUDE_CODE_EXECPATH": true,
 	"CLAUDE_CODE_MESSAGING_SOCKET": true, "CLAUDE_CODE_MESSAGING_TOKEN": true,
 	"CLAUDE_PID": true, "CLAUDE_JOB_DIR": true, "CLAUDE_CODE_VERSION": true,
+	"TRACEPARENT": true, "TRACESTATE": true,
 }
 
 func (a Account) Env() []string {
