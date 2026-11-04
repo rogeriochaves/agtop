@@ -331,7 +331,10 @@ func (s *server) onAgentEvent(conn agent.Conn, ev event.Event) {
 		}
 		s.began = true
 	case event.Message:
-		if e.Role == "assistant" && s.heldByAgent == 0 {
+		if e.Role == "assistant" && e.Parent == "" && s.info.State == "idle" {
+			s.turnFrom = time.Now() // it picked up on its own (see onMessage)
+		}
+		if e.Role == "assistant" && s.heldByAgent == 0 && s.answers() {
 			s.waiting = time.Time{}
 		}
 		s.onMessage(conn, e)
@@ -424,6 +427,15 @@ func (s *server) onTask(ev event.Event) bool {
 	return false
 }
 
+// answers is whether what the agent says now answers what was waiting:
+// only a turn that began after it does. A task that ends mid-turn has its
+// notice taken up in a turn of its own after this one, which the agent
+// starts with nothing said for a while, so this turn's reply leaves the
+// agent up for it. Called with mu held.
+func (s *server) answers() bool {
+	return !s.turnFrom.Before(s.waiting)
+}
+
 // wireCommand is a slash command as the commands line has always had it.
 type wireCommand struct {
 	Name         string   `json:"name"`
@@ -504,7 +516,7 @@ func (s *server) onTurnEnd(conn agent.Conn, e event.TurnEnd) {
 		// something, the host stays up for it.
 		s.heldByAgent--
 		s.waiting = time.Now()
-	} else if strings.TrimSpace(e.Text) != "" {
+	} else if strings.TrimSpace(e.Text) != "" && s.answers() {
 		s.waiting = time.Time{} // it said something: ours was answered
 	}
 	s.askContext()

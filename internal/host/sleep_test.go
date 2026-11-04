@@ -316,3 +316,51 @@ func TestIdleWaitsForAMessageTheAgentHeld(t *testing.T) {
 		t.Fatalf("agent was stopped and restarted %d times", n-1)
 	}
 }
+
+// notifyingClaude starts a monitor that ends inside the same turn, the way
+// a short Monitor does: Claude Code queues its notice, ends the turn with a
+// reply, then takes the notice up in a turn of its own after a quiet
+// stretch (the model thinking) with no output, longer than the rest.
+const notifyingClaude = `#!/bin/sh
+echo launch >> "$(dirname "$0")/launches.log"
+echo '{"type":"system","subtype":"init","session_id":"SID","model":"claude-haiku-4-5","permissionMode":"default","tools":[]}'
+while read -r line; do
+  case "$line" in
+  *'"type":"user"'*)
+    echo '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"mon1","task_type":"monitor","description":"watch the build"}]}'
+    echo '{"type":"system","subtype":"background_tasks_changed","tasks":[]}'
+    echo '{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Watching the build."}]}}'
+    echo '{"type":"result","subtype":"success","result":"Watching the build.","total_cost_usd":0.01}'
+    sleep 4
+    echo '{"type":"stream_event","event":{"type":"message_start","message":{"id":"m2","model":"claude-haiku-4-5"}}}'
+    echo '{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"The build passed."}]}}'
+    echo '{"type":"result","subtype":"success","result":"The build passed.","total_cost_usd":0.01}'
+    ;;
+  esac
+done
+`
+
+func TestIdleWaitsForANoticeQueuedMidTurn(t *testing.T) {
+	bin := setup(t)
+	if err := os.WriteFile(bin, []byte(notifyingClaude), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Spawn(Config{Cwd: filepath.Dir(bin), Binary: bin, Prompt: "watch the build", IdleStop: Duration(150 * time.Millisecond)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Dial(cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	defer c.Stop()
+	next(t, c, func(ev any) bool { m, ok := ev.(event.TurnEnd); return ok && m.Text == "The build passed." })
+	if i, _ := ReadInfo(cfg.ID); i.Sleeping || i.ClaudePID == 0 {
+		t.Fatalf("agent stopped before it took up the notice: %+v", i)
+	}
+	launches, _ := os.ReadFile(filepath.Join(filepath.Dir(bin), "launches.log"))
+	if n := bytes.Count(launches, []byte("\n")); n != 1 {
+		t.Fatalf("agent was stopped and restarted %d times", n-1)
+	}
+}

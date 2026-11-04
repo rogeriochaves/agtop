@@ -362,6 +362,11 @@ type server struct {
 	// waiting is when a message went to the agent that it hasn't begun
 	// answering: zero once it has (see stillWorking).
 	waiting time.Time
+	// turnFrom is when the turn under way began: a reply answers what was
+	// waiting only if its turn began after it. A task's notice that comes
+	// in mid-turn is taken up in a turn of its own once this one ends, so
+	// this turn's reply doesn't answer it.
+	turnFrom time.Time
 	// heldByAgent counts messages sent while a turn was under way: the
 	// agent keeps them in its own queue and starts each in a turn of its
 	// own once the current one ends, so that turn's reply answers none of
@@ -1549,13 +1554,15 @@ func (s *server) deliverExchange(text string, images, pics []string, exchange *e
 	}
 	b, _ := jsonx.Marshal(echo)
 	s.record(b)
+	s.waiting = time.Now()
 	if inTurn(s.info.State) {
 		s.heldByAgent++
+	} else {
+		s.turnFrom = s.waiting
 	}
 	s.info.State = "working"
 	s.info.Detail = ""
 	s.publish()
-	s.waiting = time.Now()
 	if exchange != nil {
 		return nil
 	}
